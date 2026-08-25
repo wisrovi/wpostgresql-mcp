@@ -669,7 +669,7 @@ def validate_model_schema(model_code: str) -> str:
 
 @mcp.tool()
 def generate_wpostgresql_tests(project_path: str) -> str:
-    """Generate pytest unit tests for all repository classes in a WPostgreSQL project."""
+    """Generate comprehensive pytest unit tests for all repository classes in a WPostgreSQL project. Covers CRUD, batch, pagination, transactions, and async methods."""
     if not os.path.isabs(project_path):
         return f"Error: project_path must be an absolute path. Got: {project_path}"
 
@@ -690,55 +690,278 @@ def generate_wpostgresql_tests(project_path: str) -> str:
         model_name = repo_name.replace("_repo", "")
         model_class = model_name.capitalize()
 
-        # Read the repo file to detect method names
         repo_path = os.path.join(repos_dir, repo_file)
         with open(repo_path, encoding="utf-8") as f:
             repo_content = f.read()
 
         methods = re.findall(r"def (\w+)\(self", repo_content)
+        has_async = any("_async" in m for m in methods)
 
         test_content = f'"""Auto-generated tests for {class_name}."""\n\n'
         test_content += "from unittest import mock\n\nimport pytest\n\n"
         test_content += f"from models.{model_name} import {model_class}\n"
         test_content += f"from repositories.{repo_name} import {class_name}\n"
         test_content += "from config.settings import DatabaseSettings\n\n\n"
+
         test_content += "@pytest.fixture\ndef settings():\n"
         test_content += '    return DatabaseSettings(dbname="testdb", user="test", password="test", host="localhost")\n\n\n'
-        test_content += f"@pytest.fixture\ndef repo(settings):\n"
+
+        test_content += "@pytest.fixture\ndef repo(settings):\n"
         test_content += f"    with mock.patch('repositories.{repo_name}.WPostgreSQL') as MockDB:\n"
         test_content += "        instance = MockDB.return_value\n"
         test_content += f"        yield {class_name}(settings), instance\n\n\n"
 
+        if has_async:
+            test_content += "@pytest.fixture\nasync def async_repo(settings):\n"
+            test_content += f"    with mock.patch('repositories.{repo_name}.WPostgreSQL') as MockDB:\n"
+            test_content += "        instance = MockDB.return_value\n"
+            test_content += f"        yield {class_name}(settings), instance\n\n\n"
+
         for method in methods:
             if method.startswith("_"):
                 continue
+
             test_name = f"test_{method}"
-            if "create" in method or "insert" in method:
+
+            # --- INSERT ---
+            if method == "insert" or (method.startswith("insert") and method != "insert_many" and "_async" not in method):
                 test_content += f"def {test_name}(repo):\n"
                 test_content += f"    r, db = repo\n"
                 test_content += f"    r.{method}({model_class}(id=1, name='test'))\n"
                 test_content += f"    db.insert.assert_called_once()\n\n"
-            elif "get_all" in method:
+
+            # --- INSERT MANY ---
+            elif method == "insert_many":
                 test_content += f"def {test_name}(repo):\n"
                 test_content += f"    r, db = repo\n"
-                test_content += f"    db.get_all.return_value = [{model_class}(id=1, name='test')]\n"
+                test_content += f"    items = [{model_class}(id=i, name=f'item{{i}}') for i in range(3)]\n"
+                test_content += f"    r.{method}(items)\n"
+                test_content += f"    db.insert_many.assert_called_once_with(items)\n\n"
+
+            # --- GET ALL ---
+            elif method == "get_all" or (method.startswith("get_all") and "_async" not in method):
+                test_content += f"def {test_name}(repo):\n"
+                test_content += f"    r, db = repo\n"
+                test_content += f"    expected = [{model_class}(id=1, name='a'), {model_class}(id=2, name='b')]\n"
+                test_content += f"    db.get_all.return_value = expected\n"
                 test_content += f"    result = r.{method}()\n"
-                test_content += f"    assert isinstance(result, list)\n\n"
-            elif "delete" in method:
+                test_content += f"    assert isinstance(result, list)\n"
+                test_content += f"    assert len(result) == 2\n\n"
+
+            # --- GET BY FIELD ---
+            elif method == "get_by_field" or (method.startswith("get_by_field") and "_async" not in method):
+                test_content += f"def {test_name}(repo):\n"
+                test_content += f"    r, db = repo\n"
+                test_content += f"    expected = [{model_class}(id=1, name='match')]\n"
+                test_content += f"    db.get_by_field.return_value = expected\n"
+                test_content += f"    result = r.{method}(name='match')\n"
+                test_content += f"    db.get_by_field.assert_called_once_with(name='match')\n"
+                test_content += f"    assert len(result) == 1\n\n"
+
+            # --- UPDATE ---
+            elif method == "update" or (method == "update" and "_async" not in method):
+                test_content += f"def {test_name}(repo):\n"
+                test_content += f"    r, db = repo\n"
+                test_content += f"    r.{method}(1, {model_class}(id=1, name='updated'))\n"
+                test_content += f"    db.update.assert_called_once_with(1, {model_class}(id=1, name='updated'))\n\n"
+
+            # --- DELETE ---
+            elif method == "delete" or (method == "delete" and "_async" not in method):
                 test_content += f"def {test_name}(repo):\n"
                 test_content += f"    r, db = repo\n"
                 test_content += f"    r.{method}(1)\n"
                 test_content += f"    db.delete.assert_called_once_with(1)\n\n"
-            elif "count" in method:
+
+            # --- COUNT ---
+            elif method == "count" or (method == "count" and "_async" not in method):
                 test_content += f"def {test_name}(repo):\n"
                 test_content += f"    r, db = repo\n"
                 test_content += f"    db.count.return_value = 42\n"
-                test_content += f"    assert r.{method}() == 42\n\n"
-            elif "update" in method:
+                test_content += f"    result = r.{method}()\n"
+                test_content += f"    assert result == 42\n\n"
+
+            # --- GET PAGINATED ---
+            elif method == "get_paginated":
+                test_content += f"def {test_name}_default(repo):\n"
+                test_content += f"    r, db = repo\n"
+                test_content += f"    db.get_paginated.return_value = [{model_class}(id=1, name='a')]\n"
+                test_content += f"    result = r.{method}(limit=10, offset=0)\n"
+                test_content += f"    db.get_paginated.assert_called_once_with(limit=10, offset=0, order_by=None, order_desc=False)\n"
+                test_content += f"    assert isinstance(result, list)\n\n"
+                test_content += f"def {test_name}_with_order(repo):\n"
+                test_content += f"    r, db = repo\n"
+                test_content += f"    db.get_paginated.return_value = []\n"
+                test_content += f"    r.{method}(limit=5, offset=10, order_by='name', order_desc=True)\n"
+                test_content += f"    db.get_paginated.assert_called_once_with(limit=5, offset=10, order_by='name', order_desc=True)\n\n"
+
+            # --- GET PAGE ---
+            elif method == "get_page":
                 test_content += f"def {test_name}(repo):\n"
                 test_content += f"    r, db = repo\n"
-                test_content += f"    r.{method}(1, {model_class}(id=1, name='updated'))\n"
-                test_content += f"    db.update.assert_called_once()\n\n"
+                test_content += f"    db.get_paginated.return_value = [{model_class}(id=1, name='a')]\n"
+                test_content += f"    result = r.{method}(page=2, per_page=10)\n"
+                test_content += f"    db.get_paginated.assert_called_once_with(limit=10, offset=10)\n"
+                test_content += f"    assert isinstance(result, list)\n\n"
+
+            # --- UPDATE MANY ---
+            elif method == "update_many":
+                test_content += f"def {test_name}(repo):\n"
+                test_content += f"    r, db = repo\n"
+                test_content += f"    updates = [\n"
+                test_content += f"        ({model_class}(id=1, name='u1'), 1),\n"
+                test_content += f"        ({model_class}(id=2, name='u2'), 2),\n"
+                test_content += f"    ]\n"
+                test_content += f"    db.update_many.return_value = 2\n"
+                test_content += f"    result = r.{method}(updates)\n"
+                test_content += f"    db.update_many.assert_called_once_with(updates)\n"
+                test_content += f"    assert result == 2\n\n"
+
+            # --- DELETE MANY ---
+            elif method == "delete_many":
+                test_content += f"def {test_name}(repo):\n"
+                test_content += f"    r, db = repo\n"
+                test_content += f"    db.delete_many.return_value = 3\n"
+                test_content += f"    result = r.{method}([1, 2, 3])\n"
+                test_content += f"    db.delete_many.assert_called_once_with([1, 2, 3])\n"
+                test_content += f"    assert result == 3\n\n"
+
+            # --- EXECUTE TRANSACTION ---
+            elif method == "execute_transaction":
+                test_content += f"def {test_name}(repo):\n"
+                test_content += f"    r, db = repo\n"
+                test_content += f"    ops = [\n"
+                test_content += f'        ("INSERT INTO t (id) VALUES (%s)", (1,)),\n'
+                test_content += f'        ("UPDATE t SET name = %s WHERE id = %s", ("x", 1)),\n'
+                test_content += f"    ]\n"
+                test_content += f"    db.execute_transaction.return_value = [None, None]\n"
+                test_content += f"    result = r.{method}(ops)\n"
+                test_content += f"    db.execute_transaction.assert_called_once_with(ops)\n"
+                test_content += f"    assert isinstance(result, list)\n\n"
+
+            # --- WITH TRANSACTION ---
+            elif method == "with_transaction":
+                test_content += f"def {test_name}(repo):\n"
+                test_content += f"    r, db = repo\n"
+                test_content += f"    callback = mock.MagicMock(return_value='done')\n"
+                test_content += f"    db.with_transaction.return_value = 'done'\n"
+                test_content += f"    result = r.{method}(callback)\n"
+                test_content += f"    db.with_transaction.assert_called_once_with(callback)\n"
+                test_content += f"    assert result == 'done'\n\n"
+
+            # --- ASYNC INSERT ---
+            elif method == "insert_async":
+                test_content += f"async def {test_name}(async_repo):\n"
+                test_content += f"    r, db = async_repo\n"
+                test_content += f"    await r.{method}({model_class}(id=1, name='test'))\n"
+                test_content += f"    db.insert_async.assert_called_once()\n\n"
+
+            # --- ASYNC INSERT MANY ---
+            elif method == "insert_many_async":
+                test_content += f"async def {test_name}(async_repo):\n"
+                test_content += f"    r, db = async_repo\n"
+                test_content += f"    items = [{model_class}(id=i, name=f'item{{i}}') for i in range(3)]\n"
+                test_content += f"    await r.{method}(items)\n"
+                test_content += f"    db.insert_many_async.assert_called_once_with(items)\n\n"
+
+            # --- ASYNC GET ALL ---
+            elif method == "get_all_async":
+                test_content += f"async def {test_name}(async_repo):\n"
+                test_content += f"    r, db = async_repo\n"
+                test_content += f"    expected = [{model_class}(id=1, name='a')]\n"
+                test_content += f"    db.get_all_async.return_value = expected\n"
+                test_content += f"    result = await r.{method}()\n"
+                test_content += f"    assert isinstance(result, list)\n"
+                test_content += f"    assert len(result) == 1\n\n"
+
+            # --- ASYNC GET BY FIELD ---
+            elif method == "get_by_field_async":
+                test_content += f"async def {test_name}(async_repo):\n"
+                test_content += f"    r, db = async_repo\n"
+                test_content += f"    db.get_by_field_async.return_value = [{model_class}(id=1, name='match')]\n"
+                test_content += f"    result = await r.{method}(name='match')\n"
+                test_content += f"    db.get_by_field_async.assert_called_once_with(name='match')\n"
+                test_content += f"    assert len(result) == 1\n\n"
+
+            # --- ASYNC UPDATE ---
+            elif method == "update_async":
+                test_content += f"async def {test_name}(async_repo):\n"
+                test_content += f"    r, db = async_repo\n"
+                test_content += f"    await r.{method}(1, {model_class}(id=1, name='updated'))\n"
+                test_content += f"    db.update_async.assert_called_once()\n\n"
+
+            # --- ASYNC DELETE ---
+            elif method == "delete_async":
+                test_content += f"async def {test_name}(async_repo):\n"
+                test_content += f"    r, db = async_repo\n"
+                test_content += f"    await r.{method}(1)\n"
+                test_content += f"    db.delete_async.assert_called_once_with(1)\n\n"
+
+            # --- ASYNC COUNT ---
+            elif method == "count_async":
+                test_content += f"async def {test_name}(async_repo):\n"
+                test_content += f"    r, db = async_repo\n"
+                test_content += f"    db.count_async.return_value = 10\n"
+                test_content += f"    result = await r.{method}()\n"
+                test_content += f"    assert result == 10\n\n"
+
+            # --- ASYNC GET PAGINATED ---
+            elif method == "get_paginated_async":
+                test_content += f"async def {test_name}(async_repo):\n"
+                test_content += f"    r, db = async_repo\n"
+                test_content += f"    db.get_paginated_async.return_value = [{model_class}(id=1, name='a')]\n"
+                test_content += f"    result = await r.{method}(limit=10, offset=0)\n"
+                test_content += f"    db.get_paginated_async.assert_called_once_with(limit=10, offset=0, order_by=None, order_desc=False)\n"
+                test_content += f"    assert isinstance(result, list)\n\n"
+
+            # --- ASYNC GET PAGE ---
+            elif method == "get_page_async":
+                test_content += f"async def {test_name}(async_repo):\n"
+                test_content += f"    r, db = async_repo\n"
+                test_content += f"    db.get_paginated_async.return_value = [{model_class}(id=1, name='a')]\n"
+                test_content += f"    result = await r.{method}(page=1, per_page=10)\n"
+                test_content += f"    db.get_paginated_async.assert_called_once_with(limit=10, offset=0)\n"
+                test_content += f"    assert isinstance(result, list)\n\n"
+
+            # --- ASYNC UPDATE MANY ---
+            elif method == "update_many_async":
+                test_content += f"async def {test_name}(async_repo):\n"
+                test_content += f"    r, db = async_repo\n"
+                test_content += f"    updates = [({model_class}(id=1, name='u'), 1)]\n"
+                test_content += f"    db.update_many_async.return_value = 1\n"
+                test_content += f"    result = await r.{method}(updates)\n"
+                test_content += f"    db.update_many_async.assert_called_once_with(updates)\n"
+                test_content += f"    assert result == 1\n\n"
+
+            # --- ASYNC DELETE MANY ---
+            elif method == "delete_many_async":
+                test_content += f"async def {test_name}(async_repo):\n"
+                test_content += f"    r, db = async_repo\n"
+                test_content += f"    db.delete_many_async.return_value = 2\n"
+                test_content += f"    result = await r.{method}([1, 2])\n"
+                test_content += f"    db.delete_many_async.assert_called_once_with([1, 2])\n"
+                test_content += f"    assert result == 2\n\n"
+
+            # --- ASYNC EXECUTE TRANSACTION ---
+            elif method == "execute_transaction_async":
+                test_content += f"async def {test_name}(async_repo):\n"
+                test_content += f"    r, db = async_repo\n"
+                test_content += f"    ops = [(\"SELECT 1\", ())]\n"
+                test_content += f"    db.execute_transaction_async.return_value = [(1,)]\n"
+                test_content += f"    result = await r.{method}(ops)\n"
+                test_content += f"    db.execute_transaction_async.assert_called_once_with(ops)\n"
+                test_content += f"    assert isinstance(result, list)\n\n"
+
+            # --- ASYNC WITH TRANSACTION ---
+            elif method == "with_transaction_async":
+                test_content += f"async def {test_name}(async_repo):\n"
+                test_content += f"    r, db = async_repo\n"
+                test_content += f"    callback = mock.AsyncMock(return_value='done')\n"
+                test_content += f"    db.with_transaction_async.return_value = 'done'\n"
+                test_content += f"    result = await r.{method}(callback)\n"
+                test_content += f"    db.with_transaction_async.assert_called_once_with(callback)\n"
+                test_content += f"    assert result == 'done'\n\n"
+
+            # --- FALLBACK for unknown methods ---
             else:
                 test_content += f"def {test_name}(repo):\n"
                 test_content += f"    r, db = repo\n"
@@ -754,7 +977,7 @@ def generate_wpostgresql_tests(project_path: str) -> str:
         return f"No *_repo.py files found in {repos_dir}"
 
     return (
-        f"Generated {len(generated)} test file(s):\n"
+        f"Generated {len(generated)} test file(s) with full method coverage:\n"
         + "\n".join(f"  - {f}" for f in generated)
         + "\n\nRun: pytest tests/ -v"
     )
@@ -961,6 +1184,632 @@ def get_wpostgresql_architect_manual() -> str:
         "wpostgresql.cli                   -> wpostgresql CLI (init, list, insert, get, delete, count, drop, test-connection)\n"
     )
     return manual_text
+
+
+@mcp.tool()
+def lint_wpostgresql_code(code: str) -> str:
+    """Analyze Python code for potential WPostgreSQL design issues, bad practices, or parameter mismatches.
+
+    Args:
+        code: The Python source code to analyze.
+    """
+    issues = []
+    warnings = []
+    suggestions = []
+
+    lines = code.splitlines()
+    for i, line in enumerate(lines, 1):
+        stripped = line.strip()
+
+        if "session.add(" in stripped or "session.commit(" in stripped:
+            issues.append(f"Line {i}: SQLAlchemy pattern detected — use WPostgreSQL (db.insert, db.update) instead")
+
+        if "psycopg2" in stripped:
+            issues.append(f"Line {i}: psycopg2 detected — WPostgreSQL uses psycopg 3 internally")
+
+        if "conn = psycopg2.connect(" in stripped or "psycopg2.connect(" in stripped:
+            issues.append(f"Line {i}: Direct psycopg2 connection — use WPostgreSQL or get_connection() instead")
+
+        if re.search(r'\.update\([^)]*\{', stripped):
+            issues.append(f"Line {i}: update() with dict — CRITICAL: update() takes a BaseModel instance, NOT a dict")
+
+        if "session.query(" in stripped or "session.filter(" in stripped:
+            issues.append(f"Line {i}: SQLAlchemy query pattern — use WPostgreSQL methods (get_by_field, get_paginated)")
+
+        if re.search(r'\.execute\(["\'].*\b(drop|truncate|alter)\b', stripped, re.IGNORECASE):
+            warnings.append(f"Line {i}: DDL statement via raw execute — consider using TableSync for schema management")
+
+        if re.search(r'cursor\(\)', stripped):
+            warnings.append(f"Line {i}: Raw cursor usage — prefer WPostgreSQL repository methods")
+
+        if re.search(r'\.fetchone\(\)|\.fetchall\(\)', stripped):
+            warnings.append(f"Line {i}: Raw fetch pattern — WPostgreSQL methods return Pydantic model instances directly")
+
+        if "from sqlalchemy" in stripped or "import sqlalchemy" in stripped:
+            issues.append(f"Line {i}: SQLAlchemy import — WPostgreSQL replaces SQLAlchemy entirely")
+
+        if "declarative_base" in stripped:
+            issues.append(f"Line {i}: SQLAlchemy declarative_base — use Pydantic BaseModel instead")
+
+        if re.search(r'Column\(', stripped):
+            issues.append(f"Line {i}: SQLAlchemy Column — use Pydantic Field(description='...') for constraints")
+
+        if "create_engine(" in stripped:
+            issues.append(f"Line {i}: SQLAlchemy create_engine — WPostgreSQL handles connection pooling via configure_pool()")
+
+    if "BaseModel" in code:
+        if "__tablename__" not in code:
+            warnings.append("No __tablename__ found — table name will default to lowercase class name")
+
+        if "Field(description=" not in code:
+            warnings.append("No Field descriptions — add Field(description='Primary Key') or 'NOT NULL' for constraints")
+
+        if "Primary Key" not in code and "primary" not in code.lower():
+            warnings.append("No primary key field detected — every model needs one")
+
+    if "WPostgreSQL" in code:
+        if "get_all()" in code or "get_by_field(" in code:
+            suggestions.append("Good: Using WPostgreSQL read methods")
+
+        if "insert(" in code and "insert_many(" not in code:
+            if "for " in code and "insert(" in code:
+                warnings.append("Consider using insert_many() for bulk inserts inside a loop")
+
+    has_pooling = "configure_pool" in code or "pool_config" in code or "get_connection" in code
+    has_db_config = "db_config" in code
+    if has_db_config and not has_pooling:
+        suggestions.append("Consider using configure_pool() for production connection pooling")
+
+    result_lines = ["WPostgreSQL Code Lint Report", ""]
+
+    if issues:
+        result_lines.append(f"ISSUES ({len(issues)}):")
+        for issue in issues:
+            result_lines.append(f"  - {issue}")
+        result_lines.append("")
+
+    if warnings:
+        result_lines.append(f"WARNINGS ({len(warnings)}):")
+        for w in warnings:
+            result_lines.append(f"  - {w}")
+        result_lines.append("")
+
+    if suggestions:
+        result_lines.append("SUGGESTIONS:")
+        for s in suggestions:
+            result_lines.append(f"  + {s}")
+        result_lines.append("")
+
+    if not issues and not warnings:
+        result_lines.append("Result: PASS — no WPostgreSQL issues found")
+    else:
+        result_lines.append(f"Result: {len(issues)} issue(s), {len(warnings)} warning(s)")
+
+    return "\n".join(result_lines)
+
+
+@mcp.tool()
+def adapt_code_to_wpostgresql(
+    source_code: str,
+    target_file: str = "",
+) -> str:
+    """Adapt existing Python database code (psycopg2, SQLAlchemy, raw SQL) to use WPostgreSQL.
+
+    Args:
+        source_code: The original Python code snippet containing the database logic to adapt.
+        target_file: Optional filename hint for context (e.g. 'repositories/user_repo.py').
+    """
+    adapted_parts = []
+    warnings = []
+    is_async = "async " in source_code or "await " in source_code or "asyncio" in source_code
+
+    has_psycopg2 = "psycopg2" in source_code
+    has_sqlalchemy = "sqlalchemy" in source_code.lower() or "session.add" in source_code
+    has_raw_sql = re.search(r'\.execute\(["\']', source_code) is not None
+
+    if has_sqlalchemy:
+        table_match = re.search(r'__tablename__\s*=\s*["\'](\w+)["\']', source_code)
+        table_name = table_match.group(1) if table_match else "my_table"
+
+        class_match = re.search(r'class\s+(\w+)\(.*Base\):', source_code)
+        class_name = class_match.group(1) if class_match else "MyModel"
+
+        columns = []
+        col_pattern = re.compile(r'(\w+)\s*=\s*Column\((\w+)(?:,\s*(.*))?\)')
+        for m in col_pattern.finditer(source_code):
+            col_name, col_type, col_args = m.groups()
+            py_type = {"Integer": "int", "String": "str", "Text": "str", "Boolean": "bool", "Float": "float", "DateTime": "datetime"}.get(col_type, "str")
+            desc_parts = []
+            if col_args and "primary_key" in col_args:
+                desc_parts.append("Primary Key")
+            if col_args and "nullable=False" in col_args:
+                desc_parts.append("NOT NULL")
+            if col_args and "unique" in col_args.lower():
+                desc_parts.append("UNIQUE")
+            desc = f"Field(description=\"{' '.join(desc_parts)}\")" if desc_parts else ""
+            default = ""
+            if col_args:
+                default_match = re.search(r'default\s*=\s*(\S+)', col_args)
+                if default_match:
+                    default = f" = {default_match.group(1).rstrip(',')}"
+            columns.append(f"    {col_name}: {py_type} {desc}{default}".rstrip())
+
+        adapted_parts.append("from pydantic import BaseModel, Field")
+        adapted_parts.append("from wpostgresql import WPostgreSQL\n")
+        adapted_parts.append(f"class {class_name}(BaseModel):")
+        adapted_parts.append(f'    __tablename__ = "{table_name}"')
+        adapted_parts.extend(columns)
+        adapted_parts.append("")
+        adapted_parts.append(f'db_config = {{"dbname": "mydb", "user": "postgres", "password": "", "host": "localhost", "port": 5432}}')
+        adapted_parts.append(f"db = WPostgreSQL({class_name}, db_config)\n")
+
+        add_matches = re.findall(r'session\.add\((\w+)\((.*?)\)\)', source_code)
+        for model_instance, args in add_matches:
+            adapted_parts.append(f"db.insert({model_instance}({args}))")
+
+        query_matches = re.findall(r'session\.query\((\w+)\)(.*?)\.all\(\)', source_code, re.DOTALL)
+        for model_name, chain in query_matches:
+            filter_match = re.search(r'\.filter\((\w+)\.(\w+)\s*==\s*(\w+)\)', chain)
+            if filter_match:
+                col, val = filter_match.group(2), filter_match.group(3)
+                adapted_parts.append(f"results = db.get_by_field({col}={val})")
+            else:
+                adapted_parts.append(f"results = db.get_all()")
+
+        commit_match = re.findall(r'session\.commit\(\)', source_code)
+        if commit_match:
+            adapted_parts.append("# No manual commit needed — WPostgreSQL auto-commits after each operation")
+
+    elif has_psycopg2:
+        conn_match = re.search(r'psycopg2\.connect\((.*?)\)', source_code, re.DOTALL)
+        config_dict = {}
+        if conn_match:
+            for kw in re.finditer(r'(\w+)\s*=\s*["\']([^"\']+)["\']', conn_match.group(1)):
+                config_dict[kw.group(1)] = kw.group(2)
+
+        adapted_parts.append("from pydantic import BaseModel, Field")
+        adapted_parts.append("from wpostgresql import WPostgreSQL\n")
+        adapted_parts.append("class Record(BaseModel):")
+        adapted_parts.append('    __tablename__ = "records"')
+        adapted_parts.append('    id: int = Field(description="Primary Key")')
+        adapted_parts.append("    # Add your fields here based on the original table schema")
+        adapted_parts.append("")
+        db_config = config_dict if config_dict else {"dbname": "mydb", "user": "postgres", "password": "", "host": "localhost", "port": 5432}
+        adapted_parts.append(f"db_config = {repr(db_config)}")
+        adapted_parts.append("db = WPostgreSQL(Record, db_config)\n")
+
+        insert_match = re.search(r'cur\.execute\(["\']INSERT\s+INTO\s+\w+\s*\(([^)]+)\)\s*VALUES\s*\(([^)]+)\)["\']', source_code, re.IGNORECASE)
+        if insert_match:
+            cols = [c.strip() for c in insert_match.group(1).split(",")]
+            adapted_parts.append("# Original INSERT mapped to:")
+            fields_str = ", ".join(f"{c}=..." for c in cols)
+            adapted_parts.append(f"# db.insert(Record({fields_str}))")
+
+        select_match = re.search(r'cur\.execute\(["\']SELECT\s+(.*?)\s+FROM\s+(\w+)', source_code, re.IGNORECASE)
+        if select_match:
+            adapted_parts.append(f"# Original SELECT mapped to:")
+            adapted_parts.append(f"# results = db.get_all()  # or db.get_by_field(...)")
+
+        adapted_parts.append("# No more manual conn.close(), cursor, commit — WPostgreSQL handles it all")
+
+    elif has_raw_sql:
+        adapted_parts.append("from pydantic import BaseModel, Field")
+        adapted_parts.append("from wpostgresql import WPostgreSQL\n")
+        adapted_parts.append("class Record(BaseModel):")
+        adapted_parts.append('    __tablename__ = "records"')
+        adapted_parts.append('    id: int = Field(description="Primary Key")')
+        adapted_parts.append("    # Add your fields here based on the original table schema\n")
+        adapted_parts.append('db_config = {"dbname": "mydb", "user": "postgres", "password": "", "host": "localhost", "port": 5432}')
+        adapted_parts.append("db = WPostgreSQL(Record, db_config)\n")
+
+        select_all = re.search(r'SELECT\s+\*\s+FROM\s+(\w+)', source_code, re.IGNORECASE)
+        if select_all:
+            adapted_parts.append(f"# Original SELECT * FROM {select_all.group(1)} mapped to:")
+            adapted_parts.append("# results = db.get_all()")
+
+        insert_raw = re.search(r'INSERT\s+INTO\s+(\w+)\s*\(([^)]+)\)', source_code, re.IGNORECASE)
+        if insert_raw:
+            table = insert_raw.group(1)
+            adapted_parts.append(f"# Original INSERT INTO {table} mapped to:")
+            adapted_parts.append(f"# db.insert(Record(...))")
+
+        adapted_parts.append("# Use WPostgreSQL repository methods instead of raw SQL for safety and type-safety")
+
+    else:
+        warnings.append("Could not detect a specific database library (psycopg2, SQLAlchemy, or raw SQL).")
+        warnings.append("Returning a basic WPostgreSQL template instead.")
+        adapted_parts.append("from pydantic import BaseModel, Field")
+        adapted_parts.append("from wpostgresql import WPostgreSQL\n")
+        adapted_parts.append("class MyModel(BaseModel):")
+        adapted_parts.append('    __tablename__ = "my_table"')
+        adapted_parts.append('    id: int = Field(description="Primary Key")')
+        adapted_parts.append('    name: str = Field(description="NOT NULL")')
+        adapted_parts.append("")
+        adapted_parts.append('db_config = {"dbname": "mydb", "user": "postgres", "password": "", "host": "localhost", "port": 5432}')
+        adapted_parts.append("db = WPostgreSQL(MyModel, db_config)\n")
+        adapted_parts.append("db.insert(MyModel(id=1, name='example'))")
+
+    result_lines = [f"Adapted WPostgreSQL code:", ""]
+    if warnings:
+        result_lines.append("WARNINGS:")
+        for w in warnings:
+            result_lines.append(f"  - {w}")
+        result_lines.append("")
+
+    result_lines.append("---BEGIN ADAPTED CODE---")
+    result_lines.extend(adapted_parts)
+    result_lines.append("---END ADAPTED CODE---")
+
+    result_lines.append("")
+    result_lines.append("Next steps:")
+    result_lines.append("1. Review the generated model fields and adjust types/defaults")
+    result_lines.append("2. Add Field descriptions for constraints (Primary Key, NOT NULL, UNIQUE)")
+    result_lines.append("3. See get_wpostgresql_architect_blueprints() for full CRUD reference")
+
+    return "\n".join(result_lines)
+
+
+@mcp.tool()
+def check_schema_compatibility(original_schema: str, new_schema: str) -> str:
+    """Analyze and verify schema compatibility between two Pydantic model versions to prevent database breaks.
+
+    Args:
+        original_schema: Original Pydantic model class definition.
+        new_schema: The proposed new Pydantic model class definition.
+    """
+
+    def extract_fields(schema_str: str) -> dict:
+        fields = {}
+        for line in schema_str.splitlines():
+            match = re.search(r'^\s*([a-zA-Z_]\w*)\s*:\s*([a-zA-Z_]\w*(?:\[[^\]]+\])?)', line)
+            if match:
+                field_name, field_type = match.groups()
+                has_default = "=" in line
+                has_optional = "Optional" in field_type
+                desc_match = re.search(r'description\s*=\s*["\']([^"\']*)["\']', line)
+                description = desc_match.group(1) if desc_match else ""
+                fields[field_name] = {
+                    "type": field_type,
+                    "optional": has_default or has_optional,
+                    "description": description,
+                }
+        return fields
+
+    orig_fields = extract_fields(original_schema)
+    new_fields = extract_fields(new_schema)
+
+    breaks = []
+    warnings_list = []
+    additions = []
+
+    type_compat = {
+        ("int", "int"): True,
+        ("str", "str"): True,
+        ("bool", "bool"): True,
+        ("float", "float"): True,
+        ("int", "float"): True,
+        ("str", "int"): False,
+        ("int", "str"): False,
+        ("str", "bool"): False,
+        ("bool", "str"): False,
+    }
+
+    for name, info in orig_fields.items():
+        if name not in new_fields:
+            breaks.append(f"Field '{name}' was REMOVED — existing rows with this column will lose data or cause errors")
+        elif orig_fields[name]["type"] != new_fields[name]["type"]:
+            compat = type_compat.get((orig_fields[name]["type"], new_fields[name]["type"]), False)
+            if compat:
+                additions.append(f"Field '{name}' type widened from '{orig_fields[name]['type']}' to '{new_fields[name]['type']}' (safe)")
+            else:
+                breaks.append(f"Field '{name}' type changed from '{orig_fields[name]['type']}' to '{new_fields[name]['type']}' — may lose data")
+
+    for name, info in new_fields.items():
+        if name not in orig_fields:
+            if info["optional"]:
+                additions.append(f"New optional field '{name}' added (safe — defaults to {info['type']})")
+            else:
+                breaks.append(f"New required field '{name}' added with NO default — existing rows will fail on NOT NULL constraint")
+        elif name in orig_fields:
+            orig_desc = orig_fields[name]["description"]
+            new_desc = info["description"]
+            if "Primary Key" in orig_desc and "Primary Key" not in new_desc:
+                breaks.append(f"Field '{name}' lost Primary Key constraint")
+            if "NOT NULL" in orig_desc and "NOT NULL" not in new_desc:
+                warnings_list.append(f"Field '{name}' lost NOT NULL constraint")
+            if "UNIQUE" in orig_desc and "UNIQUE" not in new_desc:
+                warnings_list.append(f"Field '{name}' lost UNIQUE constraint")
+
+    result_lines = ["WPostgreSQL Schema Compatibility Check", ""]
+
+    if breaks:
+        result_lines.append(f"BREAKING CHANGES ({len(breaks)}):")
+        for b in breaks:
+            result_lines.append(f"  ! {b}")
+        result_lines.append("")
+
+    if warnings_list:
+        result_lines.append(f"CONSTRAINT CHANGES ({len(warnings_list)}):")
+        for w in warnings_list:
+            result_lines.append(f"  ~ {w}")
+        result_lines.append("")
+
+    if additions:
+        result_lines.append(f"SAFE ADDITIONS ({len(additions)}):")
+        for a in additions:
+            result_lines.append(f"  + {a}")
+        result_lines.append("")
+
+    if breaks:
+        result_lines.append("Result: BREAKING — migration required before deploying this schema change")
+        result_lines.append("")
+        result_lines.append("To apply safely, use TableSync after adding defaults to new required fields:")
+        result_lines.append("  sync = TableSync(YourModel, db_config)")
+        result_lines.append("  sync.sync_with_model()")
+    elif warnings_list:
+        result_lines.append("Result: WARNINGS — constraints changed, review before deploying")
+    else:
+        result_lines.append("Result: SAFE — schema changes are backward-compatible")
+
+    return "\n".join(result_lines)
+
+
+@mcp.tool()
+def reverse_engineer_schema(
+    host: str = "localhost",
+    port: int = 5432,
+    dbname: str = "postgres",
+    user: str = "postgres",
+    password: str = "",
+    schema: str = "public",
+    tables: str = "",
+) -> str:
+    """Connect to an existing PostgreSQL database and generate WPostgreSQL-compatible Pydantic models from the discovered schema. Use this to migrate legacy databases to WPostgreSQL.
+
+    Args:
+        host: PostgreSQL host address.
+        port: PostgreSQL port number.
+        dbname: Database name.
+        user: Database user.
+        password: Database password.
+        schema: Schema to inspect (default: public).
+        tables: Comma-separated list of specific tables to reverse-engineer. Leave empty for all tables.
+    """
+    try:
+        import psycopg
+    except ImportError:
+        return "Error: psycopg not installed. Run: pip install 'psycopg[binary]'"
+
+    try:
+        conninfo = f"host={host} port={port} dbname={dbname} user={user} password={password}"
+        conn = psycopg.connect(conninfo, connect_timeout=10)
+    except Exception as e:
+        return f"Error: Could not connect to PostgreSQL — {e}"
+
+    try:
+        cur = conn.cursor()
+
+        if tables.strip():
+            table_list = [t.strip() for t in tables.split(",")]
+            placeholders = ", ".join(["%s"] * len(table_list))
+            cur.execute(
+                f"SELECT table_name FROM information_schema.tables "
+                f"WHERE table_schema = %s AND table_type = 'BASE TABLE' AND table_name IN ({placeholders}) "
+                f"ORDER BY table_name",
+                (schema, *table_list),
+            )
+        else:
+            cur.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = %s AND table_type = 'BASE TABLE' "
+                "ORDER BY table_name",
+                (schema,),
+            )
+
+        table_names = [row[0] for row in cur.fetchall()]
+
+        if not table_names:
+            conn.close()
+            return f"No tables found in schema '{schema}' with the specified filter."
+
+        pg_to_py = {
+            "integer": "int",
+            "bigint": "int",
+            "smallint": "int",
+            "serial": "int",
+            "bigserial": "int",
+            "text": "str",
+            "varchar": "str",
+            "character varying": "str",
+            "char": "str",
+            "character": "str",
+            "boolean": "bool",
+            "real": "float",
+            "double precision": "float",
+            "numeric": "float",
+            "decimal": "float",
+            "money": "float",
+            "date": "str",
+            "timestamp": "str",
+            "timestamp without time zone": "str",
+            "timestamp with time zone": "str",
+            "time": "str",
+            "json": "str",
+            "jsonb": "str",
+            "uuid": "str",
+            "bytea": "str",
+            "inet": "str",
+            "cidr": "str",
+            "macaddr": "str",
+            "xml": "str",
+            "name": "str",
+        }
+
+        all_models = []
+        all_imports = set()
+
+        for table_name in table_names:
+            cur.execute(
+                "SELECT c.column_name, c.data_type, c.is_nullable, "
+                "c.column_default, c.character_maximum_length, "
+                "pk.column_name AS pk_column "
+                "FROM information_schema.columns c "
+                "LEFT JOIN ( "
+                "  SELECT ku.column_name "
+                "  FROM information_schema.table_constraints tc "
+                "  JOIN information_schema.key_column_usage ku "
+                "    ON tc.constraint_name = ku.constraint_name "
+                "    AND tc.table_schema = ku.table_schema "
+                "  WHERE tc.constraint_type = 'PRIMARY KEY' "
+                "    AND tc.table_name = %s "
+                "    AND tc.table_schema = %s "
+                ") pk ON c.column_name = pk.column_name "
+                "WHERE c.table_name = %s AND c.table_schema = %s "
+                "ORDER BY c.ordinal_position",
+                (table_name, schema, table_name, schema),
+            )
+
+            columns = cur.fetchall()
+
+            cur.execute(
+                "SELECT column_name "
+                "FROM information_schema.table_constraints tc "
+                "JOIN information_schema.key_column_usage ku "
+                "  ON tc.constraint_name = ku.constraint_name "
+                "  AND tc.table_schema = ku.table_schema "
+                "WHERE tc.constraint_type = 'UNIQUE' "
+                "  AND tc.table_name = %s "
+                "  AND tc.table_schema = %s",
+                (table_name, schema),
+            )
+            unique_cols = {row[0] for row in cur.fetchall()}
+
+            cur.execute(
+                "SELECT ccu.column_name "
+                "FROM information_schema.table_constraints tc "
+                "JOIN information_schema.constraint_column_usage ccu "
+                "  ON tc.constraint_name = ccu.constraint_name "
+                "  AND tc.table_schema = ccu.table_schema "
+                "WHERE tc.constraint_type = 'FOREIGN KEY' "
+                "  AND tc.table_name = %s "
+                "  AND tc.table_schema = %s",
+                (table_name, schema),
+            )
+            fk_cols = {row[0] for row in cur.fetchall()}
+
+            cur.execute(
+                "SELECT ic.column_name, ic.ordinal_position "
+                "FROM pg_class pc "
+                "JOIN pg_namespace pn ON pc.relnamespace = pn.oid "
+                "JOIN pg_index pi ON pi.indexrelid = pc.oid "
+                "JOIN pg_attribute pa ON pa.attrelid = pi.indrelid AND pa.attnum = ANY(pi.indkey) "
+                "JOIN information_schema.columns ic "
+                "  ON ic.table_name = (SELECT relname FROM pg_class WHERE oid = pi.indrelid) "
+                "  AND ic.column_name = pa.attname "
+                "  AND ic.table_schema = %s "
+                "WHERE pc.relkind = 'i' "
+                "  AND NOT pi.indisprimary "
+                "  AND (SELECT relname FROM pg_class WHERE oid = pi.indrelid) = %s "
+                "ORDER BY ic.ordinal_position",
+                (schema, table_name),
+            )
+            indexed_cols = {row[0] for row in cur.fetchall()}
+
+            class_name = "".join(w.capitalize() for w in table_name.split("_"))
+
+            model_lines = []
+            model_lines.append(f'class {class_name}(BaseModel):')
+            model_lines.append(f'    __tablename__ = "{table_name}"')
+
+            for col_name, data_type, is_nullable, col_default, char_max, pk_col in columns:
+                py_type = pg_to_py.get(data_type.lower(), "str")
+
+                if py_type == "str" and col_name in fk_cols:
+                    py_type = "int"
+
+                desc_parts = []
+                if pk_col:
+                    desc_parts.append("Primary Key")
+                if is_nullable == "NO" and not col_default:
+                    desc_parts.append("NOT NULL")
+                if col_name in unique_cols:
+                    desc_parts.append("UNIQUE")
+
+                desc_str = f'Field(description="{" ".join(desc_parts)}")' if desc_parts else ""
+
+                if col_default:
+                    if "nextval" in col_default:
+                        default_val = ""
+                    elif col_default.startswith("'") and col_default.endswith("'::character varying"):
+                        default_val = f' = "{col_default[1:-22]}"'
+                    elif "::boolean" in col_default:
+                        default_val = f" = {col_default.split('::')[0]}"
+                    elif "::integer" in col_default or "::bigint" in col_default:
+                        default_val = f" = {col_default.split('::')[0]}"
+                    elif "::numeric" in col_default or "::double" in col_default:
+                        default_val = f" = {col_default.split('::')[0]}"
+                    elif col_default == "true":
+                        default_val = " = True"
+                    elif col_default == "false":
+                        default_val = " = False"
+                    else:
+                        default_val = ""
+                elif pk_col and py_type == "int":
+                    default_val = ""
+                elif py_type == "bool":
+                    default_val = " = True"
+                elif py_type == "int":
+                    default_val = " = 0"
+                elif py_type == "float":
+                    default_val = " = 0.0"
+                elif py_type == "str":
+                    default_val = ' = ""'
+                else:
+                    default_val = ""
+
+                field_str = f"    {col_name}: {py_type}"
+                if desc_str:
+                    field_str += f" {desc_str}"
+                if default_val:
+                    field_str += default_val
+                model_lines.append(field_str)
+
+            model_code = "\n".join(model_lines)
+            all_models.append((table_name, class_name, model_code))
+
+        output = []
+        output.append("# Auto-generated WPostgreSQL models from PostgreSQL schema")
+        output.append(f"# Source: {user}@{host}:{port}/{dbname} (schema: {schema})")
+        output.append(f"# Tables: {len(table_names)}")
+        output.append("")
+        output.append("from pydantic import BaseModel, Field")
+        output.append("from wpostgresql import WPostgreSQL\n")
+
+        for table_name, class_name, model_code in all_models:
+            output.append("")
+            output.append(model_code)
+            output.append("")
+
+        output.append("")
+        output.append("# --- Database setup ---")
+        output.append("")
+        output.append(f'db_config = {{"dbname": "{dbname}", "user": "{user}", "password": "{password}", "host": "{host}", "port": {port}}}')
+        output.append("")
+
+        for table_name, class_name, _ in all_models:
+            output.append(f"{table_name}_db = WPostgreSQL({class_name}, db_config)")
+
+        output.append("")
+        output.append("---BEGIN CODE---")
+        final_code = "\n".join(output)
+        final_code = final_code.replace("---BEGIN CODE---", "")
+        conn.close()
+
+        return final_code
+
+    except Exception as e:
+        conn.close()
+        return f"Error during reverse engineering: {e}"
 
 
 # --- Pattern-specific code generators ---
