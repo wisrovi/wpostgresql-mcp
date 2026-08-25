@@ -17,7 +17,7 @@ def catalog():
 
 def test_init_loads_initial_catalog():
     c = PatternsCatalog()
-    assert len(c.cached_patterns) == 20
+    assert len(c.cached_patterns) >= 35
     assert c.cached_patterns[0]["feature"] == "WPostgreSQL CRUD"
 
 
