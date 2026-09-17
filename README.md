@@ -42,7 +42,7 @@ wpostgresql-mcp start
 
 | Tool | Description |
 |------|-------------|
-| `get_wpostgresql_architect_blueprints` | Complete CRUD, async, batch, transaction, pool, sync, query builder examples |
+| `get_wpostgresql_architect_blueprints` | Complete CRUD, async, batch, transaction, pool, sync, query builder, SQLite backup (wsqlite) examples |
 | `get_wpostgresql_architect_manual` | Expert rules, module map, data structure selection guide |
 | `search_wpostgresql_pattern` | Search 20+ PostgreSQL patterns in official/community catalogs |
 | `deploy_wpostgresql_scaffolding` | Generate full project structure with config/models/repos/migrations |
