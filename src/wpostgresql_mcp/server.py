@@ -289,6 +289,16 @@ except SQLInjectionError as e:
 except WPostgreSQLError as e:
     print(f"WPostgreSQL error: {e}")'''
 
+    backup_section = '''=== 11. SQLITE BACKUP (wsqlite integration) ===
+
+from wpostgresql import WPostgreSQL, backup_to_sqlite, backup_to_sqlite_async
+
+# Backup synchronously to an SQLite database file powered by wsqlite
+count = db.backup_to_sqlite("products_backup.db")
+
+# Backup asynchronously
+async_count = await db.backup_to_sqlite_async("products_backup.db")'''
+
     return "\n\n".join([
         "WPOSTGRESQL EXPERT BLUEPRINTS (COMPLETE REFERENCE - RUNNABLE EXAMPLES)",
         "",
