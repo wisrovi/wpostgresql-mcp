@@ -79,6 +79,14 @@ class PatternsCatalog:
         self.cached_patterns = [
             # --- Core CRUD & Multi-Table ---
             {
+                "name": "ghost_table_audit",
+                "feature": "Enterprise Ghost Table Audit Trail (_forensic_audit_log)",
+                "module": "wpostgresql",
+                "description": "Automatic creation and tracking of _forensic_audit_log ghost table recording before/after JSON snapshots and user audit metadata for all CRUD operations",
+                "category": "Audit",
+                "origin": "Official",
+            },
+            {
                 "name": "multi_table_management",
                 "feature": "Multi-Table Management",
                 "module": "wpostgresql",
