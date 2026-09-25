@@ -111,6 +111,22 @@ class PatternsCatalog:
                 "origin": "Official",
             },
             {
+                "name": "forensic_audit_model",
+                "feature": "Forensic Audit & Soft Delete",
+                "module": "wpostgresql",
+                "description": "Inheriting from ForensicModel auto-manages audit columns (create_by, create_in, update_by, update_in, delete_by, delete_in, status=99)",
+                "category": "Audit",
+                "origin": "Official",
+            },
+            {
+                "name": "soft_delete_audit",
+                "feature": "Soft Delete & Audit Tracking",
+                "module": "wpostgresql",
+                "description": "db.delete(id, user_id=X) marks status=99 and audit metadata; use db.get_all(include_deleted=True) to include soft-deleted rows",
+                "category": "Audit",
+                "origin": "Official",
+            },
+            {
                 "name": "double_underscore_operators",
                 "feature": "Double Underscore Filters",
                 "module": "wpostgresql",
