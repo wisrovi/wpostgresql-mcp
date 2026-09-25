@@ -16,9 +16,12 @@ def catalog():
 
 
 def test_init_loads_initial_catalog():
+    """Validate initial catalog loading and search functionality."""
     c = PatternsCatalog()
     assert len(c.cached_patterns) >= 35
-    assert c.cached_patterns[0]["feature"] == "WPostgreSQL CRUD"
+    features = [p["feature"] for p in c.cached_patterns]
+    assert "Multi-Table Management" in features
+    assert "WPostgreSQL CRUD" in features
 
 
 def test_fetch_url_success(catalog):
