@@ -35,6 +35,33 @@ def get_catalog() -> PatternsCatalog:
 @mcp.tool()
 def get_wpostgresql_architect_blueprints() -> str:
     """Complete reference with runnable code examples for every WPostgreSQL feature. Use this to understand HOW to use wpostgresql for any task: CRUD, async, batch, transactions, pooling, schema sync, query builder, and constraints."""
+    multi_table_section = '''=== 0. MULTI-TABLE MANAGEMENT ===
+
+# Pass list of models to manage multiple tables in 1 WPostgreSQL instance:
+from pydantic import BaseModel
+from wpostgresql import WPostgreSQL, ForensicModel
+
+class User(ForensicModel):
+    id: int
+    name: str
+
+class Product(BaseModel):
+    id: int
+    title: str
+
+db_config = {"dbname": "wpostgresql", "user": "postgres", "password": "postgres", "host": "localhost", "port": 5432}
+
+db = WPostgreSQL([User, Product], db_config)
+
+# Access by class (dictionary indexing):
+db[User].insert(User(id=1, name="Juan"))
+
+# Access by attribute:
+products = db.product.get_all()
+
+# Auto-routing insert:
+db.insert(Product(id=10, title="Laptop"))'''
+
     crud_section = '''=== 1. COMPLETE CRUD OPERATIONS ===
 
 # --- SETUP (required for all examples) ---
@@ -338,6 +365,7 @@ db.delete(1, hard=True)  # Physical DELETE FROM query'''
         "CRITICAL: insert() returns None, use get_by_field() to retrieve after insert",
         "CRITICAL: All queries use parameterized %s placeholders (psycopg3 style)",
         "",
+        multi_table_section,
         crud_section,
         pagination_section,
         batch_section,
