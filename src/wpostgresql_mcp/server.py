@@ -299,6 +299,38 @@ count = db.backup_to_sqlite("products_backup.db")
 # Backup asynchronously
 async_count = await db.backup_to_sqlite_async("products_backup.db")'''
 
+    forensic_section = '''=== 12. FORENSIC AUDIT & SOFT DELETE (ForensicModel) ===
+
+# Inheriting from ForensicModel automatically enables audit fields (create_by, create_in, update_by, update_in, delete_by, delete_in, status).
+# By default, forensic mode is disabled (forensic=False) for standard BaseModel.
+
+from wpostgresql import WPostgreSQL, ForensicModel
+
+class Document(ForensicModel):
+    id: int
+    title: str
+
+db = WPostgreSQL(Document, db_config)
+
+# --- INSERT WITH AUDIT ---
+db.insert(Document(id=1, title="Report"), user_id=42)  # create_by=42, create_in=NOW, status=1
+
+# --- UPDATE WITH AUDIT ---
+db.update(1, Document(id=1, title="Report V2"), user_id=99)  # update_by=99, update_in=NOW
+
+# --- SOFT DELETE (status=99) ---
+db.delete(1, user_id=777)  # status=99, delete_by=777, delete_in=NOW
+
+# Standard queries exclude soft-deleted records (WHERE status != 99)
+print(db.get_all())  # []
+
+# Pass include_deleted=True to retrieve soft-deleted rows
+all_docs = db.get_all(include_deleted=True)
+print(all_docs[0].status)  # 99
+
+# --- HARD DELETE ---
+db.delete(1, hard=True)  # Physical DELETE FROM query'''
+
     return "\n\n".join([
         "WPOSTGRESQL EXPERT BLUEPRINTS (COMPLETE REFERENCE - RUNNABLE EXAMPLES)",
         "",
@@ -316,6 +348,8 @@ async_count = await db.backup_to_sqlite_async("products_backup.db")'''
         query_section,
         constraints_section,
         exceptions_section,
+        backup_section,
+        forensic_section,
     ])
 
 
