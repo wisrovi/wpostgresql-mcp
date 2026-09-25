@@ -77,7 +77,23 @@ class PatternsCatalog:
     def _load_initial_catalog(self):
         """Initial load with hardcoded fallbacks if offline."""
         self.cached_patterns = [
-            # --- Core CRUD ---
+            # --- Core CRUD & Multi-Table ---
+            {
+                "name": "multi_table_management",
+                "feature": "Multi-Table Management",
+                "module": "wpostgresql",
+                "description": "WPostgreSQL([User, Product, Order], db_config) — Manage multiple database tables seamlessly from a single instance with db[User] indexing, db.product attribute access, and auto-routing",
+                "category": "MultiTable",
+                "origin": "Official",
+            },
+            {
+                "name": "multi_table_auto_routing",
+                "feature": "Auto-Routing Multi-Table Inserts",
+                "module": "wpostgresql",
+                "description": "db.insert(instance) — Automatically routes insert() and insert_async() to the registered table based on model type",
+                "category": "MultiTable",
+                "origin": "Official",
+            },
             {
                 "name": "model_crud_basic",
                 "feature": "WPostgreSQL CRUD",
