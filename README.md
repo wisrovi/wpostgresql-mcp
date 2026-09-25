@@ -12,10 +12,17 @@ MCP Server for WPostgreSQL Architecting — teaches AI agents how to build high-
 ## Features
 
 - **10 Architect Tools**: Blueprints, manual, catalog search, scaffolding, connection validation, pattern generation
-- **20 Offline Patterns**: All core wpostgresql features cataloged with module references
+- **22 Offline Patterns**: Core CRUD, async, batch, transaction, pooling, schema sync, wsqlite backup, and Forensic Audit (`ForensicModel` soft delete & status=99)
 - **Scaffolding Generator**: Deploys full project structure with config, models, repositories, migrations, main.py
 - **Live Connection Validation**: Tests PostgreSQL connectivity via psycopg 3 and returns health status
 - **Pattern-based Generation**: Generates starter projects from catalog patterns
+
+## Relevant Technologies & Key Libraries
+
+- **Model Context Protocol (MCP)**: `mcp[cli]>=1.0.0` for AI agent interaction
+- **Python 3.10+**: Type hints and async I/O
+- **wpostgresql**: Type-safe PostgreSQL ORM with Pydantic integration and `ForensicModel` support
+- **Pydantic v2**: Data model validation and schema generation
 
 ## Installation
 
@@ -49,9 +56,9 @@ wpostgresql-mcp start
 
 | Tool | Description |
 |------|-------------|
-| `get_wpostgresql_architect_blueprints` | Complete CRUD, async, batch, transaction, pool, sync, query builder, SQLite backup (wsqlite) examples |
+| `get_wpostgresql_architect_blueprints` | Complete CRUD, async, batch, transaction, pool, sync, query builder, SQLite backup, and Forensic Audit (`ForensicModel`) examples |
 | `get_wpostgresql_architect_manual` | Expert rules, module map, data structure selection guide |
-| `search_wpostgresql_pattern` | Search 20+ PostgreSQL patterns in official/community catalogs |
+| `search_wpostgresql_pattern` | Search 22+ PostgreSQL patterns in official/community catalogs |
 | `deploy_wpostgresql_scaffolding` | Generate full project structure with config/models/repos/migrations |
 | `validate_postgresql_connection` | Live health check against a running PostgreSQL instance |
 | `generate_from_pattern` | Generate project + example from a specific catalog pattern |
