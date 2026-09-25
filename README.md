@@ -12,7 +12,8 @@ MCP Server for WPostgreSQL Architecting — teaches AI agents how to build high-
 ## Features
 
 - **10 Architect Tools**: Blueprints, manual, catalog search, scaffolding, connection validation, pattern generation
-- **22 Offline Patterns**: Core CRUD, async, batch, transaction, pooling, schema sync, wsqlite backup, and Forensic Audit (`ForensicModel` soft delete & status=99)
+- **Multi-Table Architecting**: Teaches `WPostgreSQL([User, Product, Order])` multi-table management, dictionary indexing `db[User]`, attribute access `db.product`, and auto-routing
+- **24 Offline Patterns**: Core CRUD, async, multi-table, batch, transaction, pooling, schema sync, wsqlite backup, and Forensic Audit (`ForensicModel` soft delete & status=99)
 - **Scaffolding Generator**: Deploys full project structure with config, models, repositories, migrations, main.py
 - **Live Connection Validation**: Tests PostgreSQL connectivity via psycopg 3 and returns health status
 - **Pattern-based Generation**: Generates starter projects from catalog patterns
