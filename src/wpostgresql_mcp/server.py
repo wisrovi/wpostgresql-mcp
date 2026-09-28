@@ -37,26 +37,27 @@ def get_wpostgresql_architect_blueprints() -> str:
     """Complete reference with runnable code examples for every WPostgreSQL feature. Use this to understand HOW to use wpostgresql for any task: CRUD, async, batch, transactions, pooling, schema sync, query builder, and constraints."""
     multi_table_section = '''=== 0. MULTI-TABLE MANAGEMENT ===
 
-# Pass list of models to manage multiple tables in 1 WPostgreSQL instance:
-from pydantic import BaseModel
-from wpostgresql import WPostgreSQL, ForensicModel
+# Pass list of models to manage multiple tables in 1 WPostgreSQL instance with global forensic mode:
+from pydantic import BaseModel, Field
+from wpostgresql import WPostgreSQL
 
-class User(ForensicModel):
-    id: int
-    name: str
+class User(BaseModel):
+    id: int = Field(description="Primary Key")
+    name: str = Field(description="NOT NULL")
 
 class Product(BaseModel):
-    id: int
-    title: str
+    id: int = Field(description="Primary Key")
+    title: str = Field(description="NOT NULL")
 
 db_config = {"dbname": "wpostgresql", "user": "postgres", "password": "postgres", "host": "localhost", "port": 5432}
 
-db = WPostgreSQL([User, Product], db_config)
+# Single WPostgreSQL instance for all DB tables with global forensic mode (soft-deletes & audit logs):
+db = WPostgreSQL([User, Product], db_config, forensic=True)
 
 # Access by class (dictionary indexing):
 db[User].insert(User(id=1, name="Juan"))
 
-# Access by attribute:
+# Access by attribute (lowercase model name):
 products = db.product.get_all()
 
 # Auto-routing insert:
@@ -1119,12 +1120,17 @@ def get_wpostgresql_architect_manual() -> str:
         '    __tablename__ = "person"\n'
         '    id: int = Field(description="Primary Key")\n'
         '    name: str = Field(description="NOT NULL")\n'
-        "    age: int = 0\n"
-        "    is_active: bool = True\n"
         "\n"
-        "db = WPostgreSQL(Person, db_config)\n"
-        "db.insert(Person(id=1, name='Alice', age=30, is_active=True))\n"
-        "print(db.get_all())  # Works!\n"
+        "class Attribute(BaseModel):\n"
+        '    __tablename__ = "attribute"\n'
+        '    id: int = Field(description="Primary Key")\n'
+        '    name: str = Field(description="NOT NULL")\n'
+        "\n"
+        "# Single WPostgreSQL instance for all DB tables with global forensic mode (soft-deletes & audit logs):\n"
+        "db = WPostgreSQL([Person, Attribute], db_config, forensic=True)\n"
+        "db[Person].insert(Person(id=1, name='Alice'))\n"
+        "db.attribute.insert(Attribute(id=1, name='sunglasses'))\n"
+        "print(db[Person].get_all())  # Works!\n"
         "\n"
         "--- PROJECT STRUCTURE RULES (MANDATORY) ---\n"
         "1. CONFIG: All database settings MUST be centralized in `config/settings.py` as a `DatabaseSettings` dataclass. Prefer `from_env()` so no credentials are hardcoded.\n"
