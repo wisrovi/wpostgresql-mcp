@@ -471,6 +471,23 @@ class PatternsCatalog:
                 "category": "Integration",
                 "origin": "Official",
             },
+            {
+                "name": "database_views",
+                "feature": "Database Views (@view)",
+                "module": "wpostgresql",
+                "description": "Declarative PostgreSQL Views via @view decorator with topological depends_on DDL ordering and read-only protection",
+                "category": "Core",
+                "origin": "Official",
+            },
+            {
+                "name": "restore_from_sqlite",
+                "feature": "Bidirectional SQLite Restore",
+                "module": "wpostgresql",
+                "description": "restore_from_sqlite and restore_from_sqlite_async to restore SQLite database backups into PostgreSQL",
+                "category": "Backup",
+                "origin": "Official",
+            },
+
         ]
         with suppress(Exception):
             self.refresh_catalog()
