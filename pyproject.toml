@@ -1,6 +1,7 @@
 [project]
 name = "wpostgresql-mcp"
-version = "0.8.0"
+version = "0.9.0"
+
 description = "MCP Server for WPostgreSQL Architecting"
 readme = "README.md"
 requires-python = ">=3.10"
